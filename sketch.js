@@ -1,20 +1,21 @@
 let nodes = [];
 let links = [];
-let misinformation = [];
 let slider;
 let numNodes = 120;
-let linkRadius = 150;
-let spreadChance = 0.05;
-let decayRate = 0.002;
+let linkRadius = 140;
+let spreadChance = 0.02;
+let waveSpeed = 0.015;
+let fadeSpeed = 0.004;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   noStroke();
-  
+  textFont("sans-serif");
+
   slider = createSlider(0, 100, 40, 1);
   slider.position(20, 20);
-  slider.style('width', '200px');
-  
+  slider.style("width", "200px");
+
   createNetwork();
 }
 
@@ -22,45 +23,44 @@ function createNetwork() {
   nodes = [];
   links = [];
 
-  let immunity = slider.value() / 100;
-
+  let criticalRatio = slider.value() / 100;
   for (let i = 0; i < numNodes; i++) {
     nodes.push({
       x: random(width),
       y: random(height),
-      vx: random(-0.3, 0.3),
-      vy: random(-0.3, 0.3),
-      state: random() < immunity ? "critical" : "neutral",
-      timer: 0
+      vx: random(-0.2, 0.2),
+      vy: random(-0.2, 0.2),
+      state: random() < criticalRatio ? "critical" : "neutral",
+      active: false,
+      pulse: 0
     });
   }
 
-  // Create links based on proximity
   for (let i = 0; i < numNodes; i++) {
     for (let j = i + 1; j < numNodes; j++) {
       let d = dist(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
       if (d < linkRadius) {
-        links.push({ a: i, b: j, weight: random(0.5, 1) });
+        links.push({ a: i, b: j, d: d });
       }
     }
   }
 
-  // Start misinformation at one node
-  let start = random(nodes);
-  start.state = "misinfo";
-  start.timer = 1;
+  // start one node as a rumor source
+  let source = random(nodes);
+  source.state = "misinfo";
+  source.active = true;
+  source.pulse = 1;
 }
 
 function draw() {
   background(0, 30);
-  let immunity = slider.value() / 100;
-  
+
   fill(255);
   textSize(16);
   noStroke();
   text(`Source-critical: ${slider.value()}%`, 240, 20);
 
-  // Update node positions (gentle floating motion)
+  // gentle drift
   for (let n of nodes) {
     n.x += n.vx;
     n.y += n.vy;
@@ -68,47 +68,76 @@ function draw() {
     if (n.y < 0 || n.y > height) n.vy *= -1;
   }
 
-  // Spread misinformation along links
+  // draw and propagate waves
   for (let link of links) {
     let a = nodes[link.a];
     let b = nodes[link.b];
 
-    // Draw faint link lines
-    stroke(80, 80, 80, 40);
-    strokeWeight(1);
-    line(a.x, a.y, b.x, b.y);
-
-    if (a.state === "misinfo" && b.state === "neutral" && random() < spreadChance) {
+    // spread misinformation pulses
+    if (a.active && a.state === "misinfo" && b.state === "neutral" && random() < spreadChance) {
       b.state = "misinfo";
-      b.timer = 1;
+      b.active = true;
+      b.pulse = 1;
     }
-    if (b.state === "misinfo" && a.state === "neutral" && random() < spreadChance) {
+    if (b.active && b.state === "misinfo" && a.state === "neutral" && random() < spreadChance) {
       a.state = "misinfo";
-      a.timer = 1;
+      a.active = true;
+      a.pulse = 1;
+    }
+
+    // glowing lines where both are active
+    let glow = (a.pulse + b.pulse) * 120;
+    if (glow > 5) {
+      stroke(255, 80, 80, glow);
+      strokeWeight(1.5);
+      line(a.x, a.y, b.x, b.y);
     }
   }
 
-  // Update and draw nodes
   noStroke();
   for (let n of nodes) {
-    if (n.state === "misinfo") {
-      fill(255, 50, 50, 180);
-      n.timer -= decayRate;
-      if (n.timer < 0) {
-        n.state = "neutral";
-      }
-    } else if (n.state === "critical") {
-      fill(100, 255, 150);
-    } else {
-      fill(220);
+    // update pulse dynamics
+    if (n.active) {
+      n.pulse += waveSpeed;
+      if (n.pulse > 1) n.active = false;
+    } else if (n.pulse > 0) {
+      n.pulse -= fadeSpeed;
+      if (n.pulse < 0) n.pulse = 0;
     }
-    circle(n.x, n.y, 8);
+
+    // color transitions
+    let c;
+    if (n.state === "critical") c = color(80, 255, 150);
+    else if (n.state === "misinfo") c = color(255, 70, 70);
+    else c = color(220);
+
+    // glow overlay for pulses
+    let r = 6 + n.pulse * 20;
+    let glowAlpha = n.pulse * 180;
+    fill(red(c), green(c), blue(c), glowAlpha);
+    circle(n.x, n.y, r * 1.8);
+
+    // core node
+    fill(c);
+    circle(n.x, n.y, 6);
+
+    // decay misinfo into neutral again
+    if (n.state === "misinfo" && n.pulse === 0) {
+      n.state = "neutral";
+    }
   }
 
-  // If all misinfo fades out, restart automatically
-  if (!nodes.some(n => n.state === "misinfo")) {
-    if (frameCount % 200 === 0) {
+  // periodically restart the network when calm
+  if (frameCount % 1000 === 0) {
+    if (!nodes.some(n => n.pulse > 0.1)) {
       createNetwork();
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}      createNetwork();
     }
   }
 }
