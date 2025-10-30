@@ -1,105 +1,115 @@
-let people = [];
-let immunitySlider;
-let population = 250;
-let infectionChance = 0.25;
-let connections = [];
-let infectionStarted = false;
-let immunityRate = 0.4;
+let nodes = [];
+let links = [];
+let misinformation = [];
+let slider;
+let numNodes = 120;
+let linkRadius = 150;
+let spreadChance = 0.05;
+let decayRate = 0.002;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   noStroke();
-  textFont('sans-serif');
   
-  immunitySlider = createSlider(0, 100, immunityRate * 100, 1);
-  immunitySlider.position(20, 20);
-  immunitySlider.style('width', '200px');
+  slider = createSlider(0, 100, 40, 1);
+  slider.position(20, 20);
+  slider.style('width', '200px');
   
-  generatePopulation();
-  simulateInfection();
+  createNetwork();
 }
 
-function generatePopulation() {
-  people = [];
-  for (let i = 0; i < population; i++) {
-    people.push({
+function createNetwork() {
+  nodes = [];
+  links = [];
+
+  let immunity = slider.value() / 100;
+
+  for (let i = 0; i < numNodes; i++) {
+    nodes.push({
       x: random(width),
       y: random(height),
-      state: 'susceptible'
+      vx: random(-0.3, 0.3),
+      vy: random(-0.3, 0.3),
+      state: random() < immunity ? "critical" : "neutral",
+      timer: 0
     });
   }
-  connections = [];
-}
 
-function simulateInfection() {
-  immunityRate = immunitySlider.value() / 100;
-  
-  // Assign immunity
-  for (let p of people) {
-    if (random() < immunityRate) p.state = 'immune';
-    else p.state = 'susceptible';
-  }
-  
-  // Pick one random infected person
-  let patientZero = random(people.filter(p => p.state === 'susceptible'));
-  if (!patientZero) return; // all immune
-  patientZero.state = 'infected';
-  
-  // Spread algorithm
-  let frontier = [patientZero];
-  while (frontier.length > 0) {
-    let current = frontier.pop();
-    for (let other of people) {
-      if (other.state === 'susceptible') {
-        let d = dist(current.x, current.y, other.x, other.y);
-        if (d < 80 && random() < infectionChance) {
-          other.state = 'infected';
-          connections.push({ a: current, b: other });
-          frontier.push(other);
-        }
+  // Create links based on proximity
+  for (let i = 0; i < numNodes; i++) {
+    for (let j = i + 1; j < numNodes; j++) {
+      let d = dist(nodes[i].x, nodes[i].y, nodes[j].x, nodes[j].y);
+      if (d < linkRadius) {
+        links.push({ a: i, b: j, weight: random(0.5, 1) });
       }
     }
   }
-  
-  infectionStarted = true;
+
+  // Start misinformation at one node
+  let start = random(nodes);
+  start.state = "misinfo";
+  start.timer = 1;
 }
 
 function draw() {
-  background(0);
-  immunityRate = immunitySlider.value() / 100;
+  background(0, 30);
+  let immunity = slider.value() / 100;
+  
   fill(255);
-  noStroke();
   textSize(16);
-  text(`Immunity: ${immunitySlider.value()}%  (press SPACE to re-simulate)`, 240, 20);
-
-  // Draw links
-  strokeWeight(1);
-  for (let link of connections) {
-    stroke(255, 80, 80, 100);
-    line(link.a.x, link.a.y, link.b.x, link.b.y);
-  }
-
-  // Draw people
   noStroke();
-  for (let p of people) {
-    if (p.state === 'infected') fill(255, 70, 70);
-    else if (p.state === 'immune') fill(80, 255, 120);
-    else fill(220);
-    circle(p.x, p.y, 6);
+  text(`Source-critical: ${slider.value()}%`, 240, 20);
+
+  // Update node positions (gentle floating motion)
+  for (let n of nodes) {
+    n.x += n.vx;
+    n.y += n.vy;
+    if (n.x < 0 || n.x > width) n.vx *= -1;
+    if (n.y < 0 || n.y > height) n.vy *= -1;
   }
 
-  if (!infectionStarted) {
-    fill(255);
-    textAlign(CENTER, CENTER);
-    textSize(24);
-    text("Adjust immunity → Press SPACE to start outbreak", width/2, height/2);
-  }
-}
+  // Spread misinformation along links
+  for (let link of links) {
+    let a = nodes[link.a];
+    let b = nodes[link.b];
 
-function keyPressed() {
-  if (key === ' ') {
-    generatePopulation();
-    simulateInfection();
+    // Draw faint link lines
+    stroke(80, 80, 80, 40);
+    strokeWeight(1);
+    line(a.x, a.y, b.x, b.y);
+
+    if (a.state === "misinfo" && b.state === "neutral" && random() < spreadChance) {
+      b.state = "misinfo";
+      b.timer = 1;
+    }
+    if (b.state === "misinfo" && a.state === "neutral" && random() < spreadChance) {
+      a.state = "misinfo";
+      a.timer = 1;
+    }
+  }
+
+  // Update and draw nodes
+  noStroke();
+  for (let n of nodes) {
+    if (n.state === "misinfo") {
+      fill(255, 50, 50, 180);
+      n.timer -= decayRate;
+      if (n.timer < 0) {
+        n.state = "neutral";
+      }
+    } else if (n.state === "critical") {
+      fill(100, 255, 150);
+    } else {
+      fill(220);
+    }
+    circle(n.x, n.y, 8);
+  }
+
+  // If all misinfo fades out, restart automatically
+  if (!nodes.some(n => n.state === "misinfo")) {
+    if (frameCount % 200 === 0) {
+      createNetwork();
+    }
   }
 }
 
